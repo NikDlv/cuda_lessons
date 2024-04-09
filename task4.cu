@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <chrono>
 #include "cublas_v2.h"
-#define BLOCK_SIZE 2
+#define BLOCK_SIZE 32
 using namespace std;
 
 __global__ void matmul_naive_1(double *a, double *b, double *c, size_t matrix_dim) {
@@ -11,7 +11,7 @@ __global__ void matmul_naive_1(double *a, double *b, double *c, size_t matrix_di
   const int y = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (x < matrix_dim && y < matrix_dim) {
-        float tmp = 0.0;
+        double tmp = 0.0;
         for (int i = 0; i < matrix_dim; ++i) {
             tmp += a[x * matrix_dim + i] * b[i * matrix_dim + y];
         }
@@ -25,7 +25,7 @@ __global__ void matmul_naive_2(double *a, double *b, double *c, size_t matrix_di
   const int y = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (x < matrix_dim && y < matrix_dim) {
-        float tmp = 0.0;
+        double tmp = 0.0;
         for (int i = 0; i < matrix_dim; ++i) {
             tmp += a[y * matrix_dim + i] * b[i * matrix_dim + x];
         }
@@ -41,7 +41,7 @@ __global__ void matmul_block(double *a, double *b, double *c, size_t matrix_dim)
     __shared__ double a_temp[BLOCK_SIZE*BLOCK_SIZE];
     __shared__ double b_temp[BLOCK_SIZE*BLOCK_SIZE];
     __shared__ double c_temp[BLOCK_SIZE*BLOCK_SIZE];
-    c_temp[threadIdx.y + threadIdx.x] = 0.0;
+    c_temp[threadIdx.y * BLOCK_SIZE + threadIdx.x] = 0.0;
 
     for (int k = 0; k != N_BLOCKS; k++){
         a_temp[threadIdx.y * BLOCK_SIZE + threadIdx.x] = 
@@ -52,8 +52,8 @@ __global__ void matmul_block(double *a, double *b, double *c, size_t matrix_dim)
 
         __syncthreads();
 
-        float tmp = 0.0;
-        for (int i = 0; i != BLOCK_SIZE; ++i) {
+        double tmp = 0.0;
+        for (int i = 0; i != BLOCK_SIZE; i++) {
             tmp += a_temp[threadIdx.y * BLOCK_SIZE + i] * b_temp[i * BLOCK_SIZE + threadIdx.x];
         }
         __syncthreads();
@@ -68,7 +68,7 @@ __global__ void matmul_block(double *a, double *b, double *c, size_t matrix_dim)
 int check_if_equal(double *a, double *b, int N){
 
     for (size_t i = 0; i != N; i++){
-        if (abs(a[i] - b[i]) > 1E-1){
+        if (abs(a[i] - b[i]) > 1E-6){
             cout << a[i] <<" " <<  b[i] << " " << abs(a[i] - b[i]) << endl;
             return 1;
         }
@@ -82,7 +82,7 @@ int check_if_equal_transpose(double *a, double *b, int matrix_dim){
     for (size_t i = 0; i != matrix_dim; i++){
         for (size_t j = 0; j != matrix_dim; j++){
 
-            if (abs(a[j * matrix_dim + i] - b[i * matrix_dim + j]) > 1E-1){
+            if (abs(a[j * matrix_dim + i] - b[i * matrix_dim + j]) > 1E-6){
                 cout << a[j * matrix_dim + i] <<" " <<  b[i * matrix_dim + j] <<
                  " " << abs(a[j * matrix_dim + i] - b[i * matrix_dim + j]) << endl;
                 return 1;
@@ -175,7 +175,7 @@ void matmul_simple_using_host(double *a, double *b, double *c, size_t N){
 
     for (size_t x = 0; x != N; x++){
         for (size_t y = 0; y != N; y++){
-            float tmp = 0.0;
+            double tmp = 0.0;
             for (int i = 0; i != N; ++i) {
                 tmp += a[x * N + i] * b[i * N + y];
             }
@@ -188,8 +188,8 @@ int main() {
 
     double *a, *b, *c_host, *c_device; // host copies of a, b, c
     double *dev_a, *dev_b, *dev_c;
-    const size_t matrix_dim = 32; // size of the arrays
-    const size_t array_dim = pow(matrix_dim, 2);
+    const size_t matrix_dim = 1024*2; // linear size of matrix
+    const size_t array_dim = pow(matrix_dim, 2); // number of elements in matrix
     double random_lowest = 1.0; //lowest possible random double
     double random_highest = 5.0; //highest possible random double
     double alpha = 1.0;
